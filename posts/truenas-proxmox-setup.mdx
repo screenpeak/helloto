@@ -1,0 +1,426 @@
+---
+title: "Installing TrueNAS SCALE on Proxmox for Network Attached Storage"
+date: "2025-01-09"
+excerpt: "Deploy TrueNAS SCALE as a VM on Proxmox VE to create a powerful NAS solution with ZFS storage pools, NFS/SMB shares, and integration with your media server infrastructure."
+tags: ["TrueNAS", "Proxmox", "NAS", "ZFS", "NFS", "Storage", "Homelab"]
+---
+
+# Installing TrueNAS SCALE on Proxmox
+
+This guide shows you how to install TrueNAS SCALE as a virtual machine on Proxmox VE, configure ZFS storage pools, and set up NFS/SMB shares for your homelab. You'll create a centralized network storage solution accessible by all your services.
+
+## What You'll Build
+
+A complete NAS solution featuring:
+- ZFS storage pool with data integrity checking
+- NFS shares for Linux/Unix systems
+- SMB shares for Windows compatibility
+- Centralized media storage for Jellyfin
+- Web-based management interface
+
+## System Specifications
+
+### Virtual Machine Configuration
+- **VM ID**: 111
+- **CPU**: 4 cores (x86-64-v2-AES)
+- **RAM**: 8192 MB (no ballooning for ZFS)
+- **OS Disk**: 16 GB (local-lvm)
+- **Data Disk**: 884 GB (passed through or virtual disk)
+- **Network**: Bridged (vmbr0)
+
+### Software Stack
+- **Hypervisor**: Proxmox VE
+- **NAS OS**: TrueNAS SCALE 25.04.1
+- **Filesystem**: ZFS
+- **Sharing Protocols**: NFS, SMB
+
+### Network Configuration
+- **TrueNAS IP**: `${TRUENAS_IP}` (example: 192.168.0.111)
+- **Mount Path**: `/mnt/vault-111`
+
+---
+
+## Prerequisites
+
+Before starting:
+1. Proxmox VE installed and running
+2. ISO storage configured in Proxmox
+3. Storage disk(s) available for TrueNAS
+4. Network access to Proxmox web interface
+
+---
+
+## Part 1: Download and Prepare ISO
+
+### Step 1: Download TrueNAS SCALE
+
+1. Download [TrueNAS SCALE 25.04.1](https://www.truenas.com/download-truenas-scale/)
+
+2. Verify SHA256 checksum:
+   ```
+   Expected: 0719DFE4B1C7BD36AE1D6084F674CFB1AD87B749B407B4BF4801511CA401ED4A
+   ```
+
+### Step 2: Upload ISO to Proxmox
+
+1. In Proxmox web interface, go to your node
+2. Click **local** storage → **ISO Images**
+3. Click **Upload** and select TrueNAS ISO
+4. Wait for upload to complete
+
+---
+
+## Part 2: Create Virtual Machine
+
+### Step 3: Create VM in Proxmox
+
+Navigate to your Proxmox node and click **Create VM**. Use these settings:
+
+**General Tab**:
+- Node: `proxmox`
+- VM ID: `111`
+- Name: `truenas`
+
+**OS Tab**:
+- Storage: `local`
+- ISO Image: `TrueNAS-SCALE-25.04.1.iso`
+- Type: `Linux`
+- Version: `6.x - 2.6 Kernel`
+
+**System Tab**:
+- Graphics card: `Default`
+- Machine: `q35`
+- BIOS: `OVMF (UEFI)`
+- ☑ Add EFI Disk
+- EFI Storage: `local-lvm`
+- ☐ Pre-Enroll keys
+- SCSI Controller: `VirtIO SCSI single`
+- ☑ Qemu Agent
+- ☐ Add TPM
+
+**Disk Tab**:
+- Bus/Device: `VirtIO Block 0`
+- Storage: `local-lvm`
+- Disk Size: `16` GiB
+- ☑ Discard
+- ☑ IO thread
+
+**CPU Tab**:
+- Sockets: `1`
+- Cores: `4`
+- Type: `x86-64-v2-AES`
+
+**Memory Tab**:
+- Memory (MiB): `8192`
+- ☐ Ballooning Device (important for ZFS!)
+
+**Network Tab**:
+- Bridge: `vmbr0`
+- VLAN tag: `none`
+- ☑ Firewall
+- Model: `VirtIO (paravirtualized)`
+- MAC address: `auto`
+
+Click **Finish** to create the VM.
+
+---
+
+## Part 3: Add Storage Disk
+
+### Step 4: Add Data Disk to VM
+
+1. Select VM `111 (truenas)` in Proxmox
+2. Go to **Hardware** tab
+3. Click **Add → Hard Disk**
+
+Configure disk:
+- Bus/Device: `VirtIO Block 1`
+- Storage: `vault-111` (or your storage)
+- Disk Size (GiB): `884` (or your size)
+- ☑ Discard
+- ☑ IO thread
+
+Click **Add**.
+
+---
+
+## Part 4: Install TrueNAS
+
+### Step 5: Start VM and Install
+
+1. Select the VM and click **Start**
+2. Open **Console**
+3. TrueNAS installer will boot automatically
+4. Follow installation wizard:
+   - Select install disk (16 GB VirtIO disk)
+   - Set root password
+   - Choose administrative user
+   - Confirm installation
+
+5. When complete, remove installation media and reboot
+
+---
+
+## Part 5: Initial Configuration
+
+### Step 6: Access TrueNAS Web Interface
+
+After reboot:
+1. TrueNAS console shows IP address (via DHCP)
+2. In browser, navigate to: `http://${TRUENAS_IP}:80`
+3. Log in with root credentials from installation
+
+### Step 7: Set Static IP (Optional but Recommended)
+
+1. Navigate to **Network → Global Configuration**
+2. Configure:
+   - IPv4 Default Gateway: `${GATEWAY_IP}`
+   - DNS Servers: `${PIHOLE_IP}`
+
+3. Go to **Network → Interfaces**
+4. Edit interface, set:
+   - Type: `Static`
+   - IP Address: `${TRUENAS_IP}/24`
+
+5. Test changes, then save permanently
+
+---
+
+## Part 6: Create Storage Pool
+
+### Step 8: Create ZFS Pool
+
+1. Go to **Storage → Create Pool**
+
+2. Configure pool:
+   - Name: `vault-111`
+   - Layout: `Striped` (single disk) or `Mirror` (multiple disks)
+   - Select your 884 GB disk(s)
+   - ☑ Allow non-unique serial disks (if needed in VM)
+
+3. Click **Create**
+
+**Note**: For production, use mirrored or RAIDZ layouts for redundancy. Striped is OK for testing.
+
+---
+
+## Part 7: Create Dataset
+
+### Step 9: Create Media Dataset
+
+1. Go to **Datasets**
+2. Click pool name (`vault-111`)
+3. Click **Add Dataset**
+
+Configure:
+- Name: `media` (or your preferred name)
+- Share Type: `Generic` (for flexibility)
+
+4. Click **Save**
+
+### Step 10: Set Dataset Permissions
+
+1. Click the dataset (`vault-111/media`)
+2. Go to **Permissions** tab
+3. Click **Edit**
+4. Set:
+   - Owner: Your username (create user first if needed)
+   - Group: Your group
+   - Permissions: `rwxrwxrwx` or adjust as needed
+
+5. Click **Save**
+
+---
+
+## Part 8: Configure NFS Share
+
+### Step 11: Enable NFS Service
+
+1. Go to **System Settings → Services**
+2. Find **NFS** service
+3. Toggle to **Running**
+4. Click **⚙** (configure) icon
+5. Ensure **NFSv3** and **NFSv4** are enabled
+6. Click **Save**
+
+### Step 12: Create NFS Share
+
+1. Go to **Sharing → Unix (NFS) Shares**
+2. Click **Add**
+
+Configure:
+- Path: `/mnt/vault-111/media`
+- Description: `Media Storage`
+- Authorized Networks: `${ALLOWED_NETWORK}/24` (e.g., 10.0.0.0/24)
+- Access: Add network with `Read/Write`
+
+3. Click **Save**
+
+---
+
+## Part 9: Configure SMB Share (Optional)
+
+### Step 13: Enable SMB Service
+
+1. Go to **System Settings → Services**
+2. Find **SMB** service
+3. Toggle to **Running**
+
+### Step 14: Create SMB Share
+
+1. Go to **Sharing → Windows (SMB) Shares**
+2. Click **Add**
+
+Configure:
+- Path: `/mnt/vault-111/media`
+- Name: `Media`
+- Purpose: `Default share parameters`
+
+3. Click **Save**
+
+---
+
+## Part 10: Mount Shares on Client VMs
+
+### Step 15: Mount NFS Share on Linux
+
+On your client VM (e.g., Jellyfin server):
+
+Install NFS client:
+
+```bash
+sudo apt update
+sudo apt install -y nfs-common
+```
+
+Create mount point:
+
+```bash
+sudo mkdir -p /mnt/vault-111
+```
+
+Mount the share:
+
+```bash
+sudo mount -t nfs ${TRUENAS_IP}:/mnt/vault-111/media /mnt/vault-111
+```
+
+Verify mount:
+
+```bash
+df -h | grep vault
+```
+
+### Step 16: Make Mount Persistent
+
+Edit fstab:
+
+```bash
+sudo nano /etc/fstab
+```
+
+Add line:
+
+```
+${TRUENAS_IP}:/mnt/vault-111/media   /mnt/vault-111   nfs   defaults,_netdev   0  0
+```
+
+The `_netdev` option ensures mount waits for network.
+
+Test fstab:
+
+```bash
+sudo umount /mnt/vault-111
+sudo mount -a
+```
+
+---
+
+## Troubleshooting
+
+### Issue: Can't access TrueNAS web interface
+
+**Solutions**:
+1. Check VM is running in Proxmox
+2. Verify IP address from TrueNAS console
+3. Ensure firewall allows port 80/443
+4. Try accessing via direct IP, not hostname
+
+### Issue: Can't create ZFS pool
+
+**Solutions**:
+1. Verify disk is visible in TrueNAS (**Storage → Disks**)
+2. Check disk hasn't been previously used (wipe if needed)
+3. Ensure disk is not mounted elsewhere
+4. For VM disks, confirm "Discard" is enabled in Proxmox
+
+### Issue: NFS mount fails on client
+
+**Solutions**:
+1. Verify NFS service is running on TrueNAS
+2. Check firewall rules allow NFS (ports 2049, 111)
+3. Confirm client IP is in authorized networks
+4. Test mount manually first before adding to fstab
+5. Check network connectivity: `ping ${TRUENAS_IP}`
+
+### Issue: Permission denied when accessing share
+
+**Solutions**:
+1. Check dataset permissions match client user UID/GID
+2. Verify NFS export allows read/write
+3. On client, check mount options: `mount | grep vault`
+4. Consider using `maproot` or `mapall` in NFS share settings
+
+---
+
+## Performance Tips
+
+**For better performance**:
+1. Enable **IO thread** on all disks in Proxmox
+2. Use **VirtIO** drivers for network and disks
+3. Disable **memory ballooning** for ZFS (already done in guide)
+4. Consider **PCI passthrough** for storage controller if available
+5. Allocate adequate RAM (ZFS loves RAM for ARC cache)
+
+---
+
+## Maintenance
+
+### Check Pool Health
+
+```bash
+# From TrueNAS shell
+zpool status
+```
+
+### Scrub Pool (Data Integrity Check)
+
+From web interface:
+1. **Storage → Pools**
+2. Click pool → **Scrub Pool**
+3. Schedule regular scrubs (monthly recommended)
+
+### Update TrueNAS
+
+1. **System Settings → Update**
+2. Check for updates
+3. Download and apply (backup config first!)
+
+---
+
+## Conclusion
+
+You now have a fully functional TrueNAS NAS server running on Proxmox with:
+- ✓ ZFS storage pool for data integrity
+- ✓ NFS shares for Unix/Linux clients
+- ✓ SMB shares for Windows compatibility
+- ✓ Centralized storage for your homelab services
+- ✓ Web-based management interface
+
+Your Jellyfin server and other VMs can now access centralized, reliable storage for media and data.
+
+**Next steps**:
+- Configure automatic snapshots for backups
+- Set up replication to another TrueNAS instance
+- Explore TrueNAS apps for additional services
+- Implement proper backup strategy (3-2-1 rule)

@@ -1,0 +1,475 @@
+---
+title: "Building a Network-Wide Ad Blocker with Pi-hole and Unbound DNS"
+date: "2025-01-11"
+excerpt: "Deploy Pi-hole with Unbound recursive DNS on Ubuntu Server for network-wide ad blocking, enhanced privacy, and DNSSEC validation. Complete setup guide from installation to firewall configuration."
+tags: ["Pi-hole", "DNS", "Unbound", "Ubuntu", "Network Security", "Homelab", "Ad Blocking"]
+---
+
+# Building a Network-Wide Ad Blocker with Pi-hole and Unbound
+
+This guide shows you how to set up Pi-hole with Unbound as a recursive DNS server on Ubuntu Server. You'll create a network-wide ad blocker that also acts as your own recursive DNS resolver, eliminating reliance on third-party DNS providers like Google or Cloudflare for enhanced privacy.
+
+## What You'll Build
+
+A complete DNS solution featuring:
+- **Pi-hole**: Network-wide ad and tracker blocking
+- **Unbound**: Your own recursive DNS resolver
+- **DNSSEC**: DNS security validation
+- **Network-level protection**: All devices benefit automatically
+- **Enhanced privacy**: No DNS queries sent to external providers
+
+## System Specifications
+
+### Hardware Requirements
+- **CPU**: 1 core minimum
+- **RAM**: 512 MB - 1024 MB
+- **Storage**: 10 GB disk space
+- **Network**: Static IP address required
+
+### Software Stack
+- **OS**: Ubuntu Server 24.04 LTS
+- **DNS Server**: Pi-hole (latest version)
+- **Recursive DNS**: Unbound
+- **Firewall**: UFW (Uncomplicated Firewall)
+
+### Network Configuration
+- **Pi-hole IP**: `${PIHOLE_IP}` (example: 192.168.0.53)
+- **Gateway IP**: `${GATEWAY_IP}` (example: 192.168.0.1)
+- **Fallback DNS**: `${UPSTREAM_DNS}` (example: 1.1.1.1)
+- **Unbound Port**: 5335 (internal)
+
+---
+
+## Prerequisites
+
+Before starting:
+1. Fresh Ubuntu Server 24.04 installation
+2. Root or sudo access
+3. Static IP address planned for your Pi-hole
+4. Access to your router's DHCP/DNS settings
+5. Bootable USB with Rufus (for initial install)
+
+---
+
+## Part 1: Install Ubuntu Server
+
+### Step 1: Create Bootable USB
+
+1. Download [Rufus](https://rufus.ie/en/)
+2. Download [Ubuntu Server 24.04](https://ubuntu.com/download/server)
+3. Use Rufus to create bootable USB with Ubuntu ISO
+
+### Step 2: Install Ubuntu
+
+Boot from USB and follow the installation wizard. During installation:
+- Choose minimal installation
+- Enable OpenSSH server
+- Create a user account
+- Complete installation and reboot
+
+### Step 3: Update the System
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+---
+
+## Part 2: Configure Static IP
+
+### Step 4: Configure Netplan
+
+Edit the netplan configuration:
+
+```bash
+sudo nano /etc/netplan/50-cloud-init.yaml
+```
+
+Configure with your network details:
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    enp6s18:  # Your interface name - use 'ip a' to find it
+      addresses:
+       - ${PIHOLE_IP}/24  # Pi-hole static IP (e.g., 192.168.0.53/24)
+      nameservers:
+        addresses:
+          - ${UPSTREAM_DNS}  # Temporary DNS during setup (e.g., 1.1.1.1)
+      routes:
+        - to: default
+          via: ${GATEWAY_IP}  # Your router IP (e.g., 192.168.0.1)
+```
+
+**Important**: Replace `enp6s18` with your actual interface name from `ip a`.
+
+**Note**: This IP might conflict with DHCP. Reserve it in your router or use an IP outside your DHCP range.
+
+### Step 5: Apply Network Configuration
+
+Test the configuration first:
+
+```bash
+sudo netplan try
+```
+
+If no errors appear after 120 seconds, press Enter. Then apply:
+
+```bash
+sudo netplan apply
+```
+
+Verify connectivity:
+
+```bash
+ping -c 4 ${GATEWAY_IP}
+ping -c 4 1.1.1.1
+```
+
+---
+
+## Part 3: Install Pi-hole
+
+### Step 6: Run Pi-hole Installer
+
+Execute the official quick install script:
+
+```bash
+curl -sSL https://install.pi-hole.net | sudo bash
+```
+
+During installation:
+- Choose your network interface
+- Use default upstream DNS (we'll configure Unbound later)
+- Install web admin interface (recommended)
+- Enable logging (optional)
+- Set privacy level (choose based on your needs)
+
+### Step 7: Set Admin Password
+
+After installation completes:
+
+```bash
+sudo pihole -a -p
+```
+
+Enter your desired password when prompted.
+
+### Step 8: Access Dashboard
+
+Navigate to Pi-hole admin interface:
+
+```
+http://${PIHOLE_IP}/admin/
+```
+
+Log in with the password you just set.
+
+---
+
+## Part 4: Install and Configure Unbound
+
+### Step 9: Install Unbound
+
+```bash
+sudo apt install unbound -y
+```
+
+### Step 10: Create Unbound Configuration
+
+Create the Pi-hole specific configuration:
+
+```bash
+sudo nano /etc/unbound/unbound.conf.d/pi-hole.conf
+```
+
+Add this configuration:
+
+```conf
+server:
+    # Logging (optional)
+    # logfile: "/var/log/unbound/unbound.log"
+    verbosity: 0
+
+    # Listen only on localhost
+    interface: 127.0.0.1
+    port: 5335
+    do-ip4: yes
+    do-udp: yes
+    do-tcp: yes
+
+    # IPv6 support (disable if you don't have IPv6)
+    do-ip6: yes
+    prefer-ip6: no
+
+    # Security hardening
+    harden-glue: yes
+    harden-dnssec-stripped: yes
+    use-caps-for-id: no
+
+    # Reduce EDNS reassembly buffer size
+    # Prevents fragmentation issues
+    edns-buffer-size: 1232
+
+    # Performance optimizations
+    prefetch: yes
+    num-threads: 1
+
+    # Ensure kernel buffer is large enough
+    so-rcvbuf: 1m
+
+    # Private IP ranges - ensure privacy
+    private-address: 192.168.0.0/16
+    private-address: 169.254.0.0/16
+    private-address: 172.16.0.0/12
+    private-address: 10.0.0.0/8
+    private-address: fd00::/8
+    private-address: fe80::/10
+
+    # Reserved ranges (RFC6303)
+    private-address: 192.0.2.0/24
+    private-address: 198.51.100.0/24
+    private-address: 203.0.113.0/24
+    private-address: 255.255.255.255/32
+    private-address: 2001:db8::/32
+```
+
+Save and exit (Ctrl+X, then Y, then Enter).
+
+### Step 11: Restart Unbound
+
+```bash
+sudo systemctl restart unbound
+```
+
+### Step 12: Test Unbound Functionality
+
+Test that Unbound is working:
+
+```bash
+dig fail01.dnssec.works @127.0.0.1 -p 5335
+dig dnssec.works @127.0.0.1 -p 5335
+```
+
+**Expected results**:
+- First command: Should return `SERVFAIL` (invalid DNSSEC)
+- Second command: Should return `NOERROR` and an IP address
+
+### Step 13: Test DNSSEC Online
+
+Visit [DNSSEC Resolver Test](https://wander.science/projects/dns/dnssec-resolver-test/) to verify DNSSEC validation is working correctly.
+
+---
+
+## Part 5: Configure Pi-hole to Use Unbound
+
+### Step 14: Configure Pi-hole DNS Settings
+
+1. Go to Pi-hole admin: `http://${PIHOLE_IP}/admin/`
+
+2. Navigate to **Settings → DNS**
+
+3. **Uncheck** all upstream DNS providers on the left
+
+4. In **Custom DNS** field, add:
+   ```
+   127.0.0.1#5335
+   ```
+
+5. **Important**: Ensure these are enabled:
+   - ☑ Use DNSSEC
+   - ☑ Use Conditional Forwarding (optional, for local hostnames)
+
+6. Click **Save**
+
+---
+
+## Part 6: Configure Firewall
+
+### Step 15: Install UFW
+
+```bash
+sudo apt install ufw -y
+```
+
+### Step 16: Add Firewall Rules
+
+Allow required services:
+
+```bash
+# SSH access
+sudo ufw allow ssh
+
+# Web interface (HTTP/HTTPS)
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# DNS (TCP and UDP)
+sudo ufw allow 53/tcp
+sudo ufw allow 53/udp
+
+# DHCP (if Pi-hole handles DHCP)
+sudo ufw allow 67/tcp
+sudo ufw allow 67/udp
+
+# NTP (Network Time Protocol)
+sudo ufw allow 123/udp
+```
+
+### Step 17: Enable Firewall
+
+```bash
+sudo ufw enable
+```
+
+Confirm with `y` when prompted.
+
+Verify status:
+
+```bash
+sudo ufw status
+```
+
+---
+
+## Part 7: Configure Network Devices
+
+### Step 18: Configure Your Router
+
+Set Pi-hole as your network's DNS server:
+
+1. Log into your router's admin interface
+2. Find DHCP settings
+3. Set **Primary DNS** to `${PIHOLE_IP}` (e.g., 192.168.0.53)
+4. Leave **Secondary DNS** blank or set to another Pi-hole instance
+5. Save and reboot router if required
+
+**Alternative**: Configure DNS per device if you don't have router access.
+
+### Step 19: Test from Client Devices
+
+On a client device:
+
+1. Renew DHCP lease or reconnect to network
+
+2. Verify DNS server:
+   - **Windows**: `ipconfig /all`
+   - **Linux/Mac**: `cat /etc/resolv.conf`
+
+3. Test ad blocking:
+   - Visit `http://pi.hole/admin`
+   - Check query log for blocked domains
+
+---
+
+## Troubleshooting
+
+### Issue: Can't access Pi-hole admin interface
+
+**Solutions**:
+1. Verify Pi-hole service is running:
+```bash
+sudo systemctl status pihole-FTL
+```
+
+2. Check firewall rules allow port 80
+
+3. Verify static IP configuration is correct
+
+### Issue: DNS queries not being blocked
+
+**Solutions**:
+1. Verify devices are using Pi-hole as DNS server
+2. Check Pi-hole query log for incoming requests
+3. Update gravity (blocklists):
+```bash
+pihole -g
+```
+
+### Issue: Slow DNS resolution
+
+**Solutions**:
+1. Check Unbound is running:
+```bash
+sudo systemctl status unbound
+```
+
+2. Verify Unbound performance:
+```bash
+dig google.com @127.0.0.1 -p 5335
+```
+
+3. Increase `num-threads` in Unbound config if you have multiple CPU cores
+
+### Issue: DNSSEC validation failing
+
+**Solutions**:
+1. Ensure system time is correct:
+```bash
+timedatectl
+```
+
+2. Check Unbound logs:
+```bash
+sudo journalctl -u unbound -f
+```
+
+3. Verify root hints are up to date (Unbound handles this automatically)
+
+---
+
+## Maintenance
+
+### Update Pi-hole
+
+```bash
+pihole -up
+```
+
+### Update Gravity (Blocklists)
+
+```bash
+pihole -g
+```
+
+### View Real-time Logs
+
+```bash
+pihole -t
+```
+
+### Check Pi-hole Status
+
+```bash
+pihole status
+```
+
+---
+
+## Performance Notes
+
+**Typical metrics** for this setup:
+- **DNS query response time**: 10-30ms (first query), 1-5ms (cached)
+- **Memory usage**: 200-400 MB
+- **CPU usage**: <5% under normal load
+- **Blocked queries**: 20-40% of total queries (varies by usage)
+
+---
+
+## Conclusion
+
+You now have a fully functional Pi-hole with Unbound recursive DNS server providing:
+- ✓ Network-wide ad and tracker blocking
+- ✓ Enhanced privacy through recursive DNS resolution
+- ✓ DNSSEC validation for security
+- ✓ Improved DNS performance through caching
+- ✓ No reliance on third-party DNS providers
+
+Your entire network is now protected at the DNS level, with all devices benefiting automatically.
+
+**Next steps**:
+- Add additional blocklists in Pi-hole
+- Configure conditional forwarding for local domains
+- Set up [WireGuard VPN](/blog/wireguard-vpn-setup) to use Pi-hole remotely
+- Consider setting up a secondary Pi-hole for redundancy

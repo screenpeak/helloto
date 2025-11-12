@@ -1,0 +1,501 @@
+---
+title: "Essential Proxmox Configuration Backup Strategy"
+date: "2025-01-07"
+excerpt: "Protect your Proxmox homelab with a comprehensive backup strategy. Learn how to backup VM configs, GRUB settings, kernel modules, and ZFS configurations to a USB drive for disaster recovery."
+tags: ["Proxmox", "Backup", "Disaster Recovery", "Homelab", "ZFS", "System Administration"]
+---
+
+# Essential Proxmox Configuration Backup Strategy
+
+This guide shows you how to create a comprehensive backup of your Proxmox VE configuration to a USB drive. When your homelab has GPU passthrough, custom networking, and multiple VMs, having a solid backup of your configuration is critical for disaster recovery.
+
+## What You'll Backup
+
+A complete Proxmox configuration backup including:
+- All VM and container configurations
+- GRUB bootloader settings
+- Kernel and initramfs images
+- VFIO and module configurations
+- Proxmox VE settings
+- ZFS pool information
+
+## System Specifications
+
+### Requirements
+- **USB Drive**: 8GB+ recommended
+- **Filesystem**: ext4 or FAT32
+- **Proxmox Access**: Root or sudo privileges
+- **Time Required**: 5-10 minutes
+
+### What Gets Backed Up
+- VM configs: `/etc/pve/qemu-server/`
+- Boot configs: `/etc/default/grub`, `/boot/`
+- Module configs: `/etc/modprobe.d/`, `/etc/modules`
+- PVE configs: `/etc/pve/`
+- ZFS metadata: Pool lists and properties
+
+---
+
+## Prerequisites
+
+Before starting:
+1. USB drive formatted and ready
+2. Root access to Proxmox host
+3. USB drive device identified (e.g., `/dev/sdc`)
+
+---
+
+## Part 1: Prepare USB Drive
+
+### Step 1: Identify USB Drive
+
+Insert USB drive and identify it:
+
+```bash
+lsblk
+```
+
+Look for your USB drive (e.g., `sdc`).
+
+**Warning**: Ensure you identify the correct device! Wrong device could cause data loss.
+
+### Step 2: Create Mount Point and Mount
+
+```bash
+mkdir -p /mnt/usb
+mount /dev/sdc1 /mnt/usb
+```
+
+**Note**: Adjust partition number (sdc1, sdc2, etc.) based on your drive layout.
+
+Verify mount:
+
+```bash
+df -h | grep usb
+```
+
+---
+
+## Part 2: Backup VM Configurations
+
+### Step 3: Backup All VM Configs
+
+```bash
+mkdir -p /mnt/usb/backup/qemu-server
+cp -r /etc/pve/qemu-server/* /mnt/usb/backup/qemu-server/
+```
+
+**What this backs up**:
+- All VM configurations (.conf files)
+- CPU, memory, disk assignments
+- Network configurations
+- PCI passthrough settings
+- Boot order and options
+
+**Example backup**: VM 100's configuration at `/mnt/usb/backup/qemu-server/100.conf`
+
+---
+
+## Part 3: Backup Boot Configuration
+
+### Step 4: Backup GRUB Configuration
+
+```bash
+mkdir -p /mnt/usb/backup/grub
+cp /etc/default/grub /mnt/usb/backup/grub/default-grub
+cp -r /boot/grub /mnt/usb/backup/grub/boot-grub-folder
+```
+
+**Why this matters**:
+- GRUB contains IOMMU settings
+- Custom kernel parameters
+- Boot order and timeout settings
+
+### Step 5: Backup Kernel and Initramfs
+
+```bash
+mkdir -p /mnt/usb/backup/boot
+cp /boot/initrd.img-$(uname -r) /mnt/usb/backup/boot/
+cp /boot/vmlinuz-$(uname -r) /mnt/usb/backup/boot/
+tar czvf /mnt/usb/backup/boot/boot-full-backup.tar.gz /boot
+```
+
+**What this backs up**:
+- Current kernel image
+- Initramfs with all modules
+- Complete /boot directory archive
+
+**Recovery use**: If boot fails, you can restore exact kernel that was working.
+
+---
+
+## Part 4: Backup Module Configurations
+
+### Step 6: Backup VFIO and Module Configs
+
+```bash
+mkdir -p /mnt/usb/backup/modprobe
+cp /etc/modprobe.d/* /mnt/usb/backup/modprobe/
+
+mkdir -p /mnt/usb/backup/modules-load
+cp /etc/modules-load.d/* /mnt/usb/backup/modules-load/
+
+cp /etc/modules /mnt/usb/backup/modules
+```
+
+**Critical files backed up**:
+- `vfio.conf`: GPU passthrough bindings
+- `blacklist.conf`: Disabled modules (nouveau, nvidia)
+- `/etc/modules`: Modules loaded at boot
+
+**Why critical**: GPU passthrough requires specific module loading order and blacklists.
+
+---
+
+## Part 5: Backup Proxmox Configuration
+
+### Step 7: Backup PVE Configuration Files
+
+```bash
+mkdir -p /mnt/usb/backup/pve
+cp -r /etc/pve/* /mnt/usb/backup/pve/
+```
+
+**What this includes**:
+- Cluster configuration
+- User permissions and roles
+- Storage configurations
+- Network settings (SDN)
+- Firewall rules
+- Ceph configuration (if used)
+
+**Note**: This backs up the entire Proxmox VE configuration database.
+
+---
+
+## Part 6: Backup ZFS Metadata
+
+### Step 8: Export ZFS Configuration
+
+```bash
+zfs list > /mnt/usb/backup/zfs-dataset-list.txt
+zfs get all > /mnt/usb/backup/zfs-dataset-properties.txt
+```
+
+**What this captures**:
+- All ZFS datasets and volumes
+- Compression settings
+- Quota configurations
+- Snapshot policies
+- Mount points
+
+**Recovery use**: Recreate ZFS structure with same properties if pool needs rebuilding.
+
+---
+
+## Part 7: Finalize Backup
+
+### Step 9: Create Backup Manifest
+
+Document what was backed up:
+
+```bash
+cat > /mnt/usb/backup/BACKUP_INFO.txt << EOF
+Proxmox Backup
+Date: $(date)
+Hostname: $(hostname)
+Proxmox Version: $(pveversion)
+Kernel: $(uname -r)
+
+Backed up:
+- VM configs from /etc/pve/qemu-server/
+- GRUB config from /etc/default/grub
+- Kernel and initramfs from /boot/
+- Module configs from /etc/modprobe.d/
+- PVE configs from /etc/pve/
+- ZFS metadata
+
+To restore:
+1. Mount this USB drive
+2. Copy files back to original locations
+3. Update initramfs: update-initramfs -u -k all
+4. Update GRUB: update-grub
+5. Reboot
+EOF
+```
+
+### Step 10: Verify Backup
+
+Check backup contents:
+
+```bash
+ls -lah /mnt/usb/backup/
+tree /mnt/usb/backup/ | head -20
+```
+
+Verify file sizes are reasonable:
+
+```bash
+du -sh /mnt/usb/backup/*
+```
+
+### Step 11: Unmount USB Drive
+
+Safely unmount:
+
+```bash
+umount /mnt/usb
+```
+
+Remove USB drive and label it: **Proxmox Backup - [DATE]**
+
+---
+
+## Part 8: Restoration Process
+
+### How to Restore from Backup
+
+**After a fresh Proxmox install**:
+
+1. Mount backup USB:
+```bash
+mkdir -p /mnt/usb
+mount /dev/sdc1 /mnt/usb
+```
+
+2. Restore GRUB config:
+```bash
+cp /mnt/usb/backup/grub/default-grub /etc/default/grub
+update-grub
+```
+
+3. Restore module configs:
+```bash
+cp /mnt/usb/backup/modprobe/* /etc/modprobe.d/
+cp /mnt/usb/backup/modules /etc/modules
+```
+
+4. Restore VM configs:
+```bash
+cp /mnt/usb/backup/qemu-server/* /etc/pve/qemu-server/
+```
+
+5. Update initramfs:
+```bash
+update-initramfs -u -k all
+```
+
+6. Reboot:
+```bash
+reboot
+```
+
+---
+
+## Automation Script
+
+### Create Automated Backup Script
+
+Create script:
+
+```bash
+nano /usr/local/bin/proxmox-backup.sh
+```
+
+Add this content:
+
+```bash
+#!/bin/bash
+
+# Configuration
+USB_MOUNT="/mnt/usb"
+BACKUP_DIR="${USB_MOUNT}/backup"
+DATE=$(date +%Y%m%d)
+
+# Check if USB is mounted
+if ! mountpoint -q ${USB_MOUNT}; then
+    echo "Error: USB drive not mounted at ${USB_MOUNT}"
+    exit 1
+fi
+
+echo "Starting Proxmox backup..."
+
+# Create timestamped backup directory
+mkdir -p ${BACKUP_DIR}-${DATE}
+cd ${BACKUP_DIR}-${DATE}
+
+# VM Configs
+echo "Backing up VM configs..."
+mkdir -p qemu-server
+cp -r /etc/pve/qemu-server/* qemu-server/
+
+# GRUB
+echo "Backing up GRUB..."
+mkdir -p grub
+cp /etc/default/grub grub/
+
+# Modules
+echo "Backing up module configs..."
+mkdir -p modprobe modules-load
+cp /etc/modprobe.d/* modprobe/ 2>/dev/null
+cp /etc/modules-load.d/* modules-load/ 2>/dev/null
+cp /etc/modules modules
+
+# PVE configs
+echo "Backing up PVE configs..."
+mkdir -p pve
+cp -r /etc/pve/* pve/
+
+# ZFS
+echo "Backing up ZFS metadata..."
+zfs list > zfs-dataset-list.txt
+zfs get all > zfs-dataset-properties.txt
+
+# Create info file
+cat > BACKUP_INFO.txt << EOF
+Proxmox Backup
+Date: $(date)
+Hostname: $(hostname)
+Proxmox Version: $(pveversion)
+Kernel: $(uname -r)
+EOF
+
+echo "Backup complete: ${BACKUP_DIR}-${DATE}"
+echo "Size: $(du -sh ${BACKUP_DIR}-${DATE} | cut -f1)"
+```
+
+Make executable:
+
+```bash
+chmod +x /usr/local/bin/proxmox-backup.sh
+```
+
+### Run Automated Backup
+
+```bash
+mount /dev/sdc1 /mnt/usb
+/usr/local/bin/proxmox-backup.sh
+umount /mnt/usb
+```
+
+---
+
+## Best Practices
+
+### Backup Schedule
+
+**Recommended frequency**:
+- After major configuration changes (immediately)
+- Before Proxmox updates (always)
+- Monthly for stable systems
+- Weekly for development/testing systems
+
+### Storage Recommendations
+
+1. **Multiple USB drives**: Rotate between 2-3 drives
+2. **Offsite backup**: Keep one backup offsite
+3. **Test restores**: Periodically verify backups are restorable
+4. **Document changes**: Note what changed since last backup
+
+### What This Doesn't Backup
+
+**Not included** (requires separate strategy):
+- VM disk images (use Proxmox Backup Server or vzdump)
+- Container data
+- ZFS pool data (only metadata)
+- Large media files
+
+---
+
+## Troubleshooting
+
+### Issue: Can't mount USB drive
+
+**Solutions**:
+1. Check filesystem:
+```bash
+lsblk -f
+```
+
+2. If no filesystem, create one:
+```bash
+mkfs.ext4 /dev/sdc1
+```
+
+3. Check USB errors:
+```bash
+dmesg | tail -20
+```
+
+### Issue: Permission denied copying files
+
+**Solutions**:
+1. Run as root:
+```bash
+sudo -i
+```
+
+2. Check USB mount permissions:
+```bash
+mount | grep usb
+```
+
+### Issue: Backup too large for USB
+
+**Solutions**:
+1. Exclude boot archive (largest file):
+```bash
+# Skip the tar.gz line in backup script
+```
+
+2. Use larger USB drive (16GB+)
+
+3. Compress individual directories:
+```bash
+tar czvf pve-backup.tar.gz /etc/pve/
+```
+
+---
+
+## Recovery Scenarios
+
+### Scenario 1: Lost GPU Passthrough Config
+
+Restore module configs and GRUB:
+```bash
+cp /mnt/usb/backup/modprobe/* /etc/modprobe.d/
+cp /mnt/usb/backup/grub/default-grub /etc/default/grub
+update-grub
+update-initramfs -u -k all
+reboot
+```
+
+### Scenario 2: Corrupted VM Config
+
+Restore single VM:
+```bash
+cp /mnt/usb/backup/qemu-server/100.conf /etc/pve/qemu-server/
+```
+
+### Scenario 3: Fresh Proxmox Install
+
+Follow full restoration process in Part 8.
+
+---
+
+## Conclusion
+
+You now have a comprehensive backup strategy for your Proxmox configuration:
+- ✓ All critical configs backed up to USB
+- ✓ Fast disaster recovery capability
+- ✓ Protection against configuration loss
+- ✓ Documented restoration process
+- ✓ Automated backup script
+
+Regular backups ensure you can quickly recover from hardware failures, misconfigurations, or system corruption.
+
+**Next steps**:
+- Set up automated VM backups with Proxmox Backup Server
+- Configure ZFS snapshots for data protection
+- Implement 3-2-1 backup strategy (3 copies, 2 media types, 1 offsite)
+- Document your complete infrastructure

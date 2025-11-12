@@ -1,0 +1,421 @@
+---
+title: "Configuring NVIDIA GPU Passthrough on Proxmox VE"
+date: "2025-01-08"
+excerpt: "Complete guide to passing through an NVIDIA GPU to virtual machines on Proxmox VE. Enable hardware acceleration for media servers, gaming VMs, and GPU-accelerated workloads."
+tags: ["Proxmox", "GPU Passthrough", "NVIDIA", "Virtualization", "IOMMU", "Homelab"]
+---
+
+# Configuring NVIDIA GPU Passthrough on Proxmox
+
+This guide walks you through configuring PCI passthrough for an NVIDIA GPU on Proxmox VE, allowing your virtual machines to directly access the graphics card for hardware acceleration. Essential for media servers, gaming VMs, or any GPU-accelerated workload.
+
+## What You'll Achieve
+
+GPU passthrough configuration for:
+- Hardware-accelerated video transcoding in VMs
+- GPU compute workloads (CUDA, machine learning)
+- Gaming in Windows VMs
+- Professional graphics applications
+
+## System Specifications
+
+### Hardware Requirements
+- **CPU**: Intel with VT-d or AMD with AMD-Vi (IOMMU support)
+- **Motherboard**: IOMMU support enabled in BIOS
+- **GPU**: NVIDIA GeForce GTX 1060 6GB (or any NVIDIA card)
+- **IOMMU Group**: GPU should be in its own group (check first)
+
+### Software Stack
+- **Hypervisor**: Proxmox VE 7.x or 8.x
+- **GPU**: NVIDIA GeForce GTX 1060 (GP106)
+- **PCI IDs**: `10de:1c03` (GPU), `10de:10f1` (Audio)
+
+### Example Hardware Detection
+```
+PCI Slot: 01:00.0
+Device: NVIDIA GeForce GTX 1060 6GB
+PCI ID: 10de:1c03
+Audio Device: 10de:10f1
+```
+
+---
+
+## Prerequisites
+
+Before starting:
+1. Proxmox VE installed and updated
+2. CPU supports IOMMU (Intel VT-d or AMD-Vi)
+3. IOMMU enabled in BIOS/UEFI
+4. Root access to Proxmox host
+5. GPU not required for Proxmox host display
+
+---
+
+## Part 1: Identify GPU Information
+
+### Step 1: List PCI Devices
+
+```bash
+lspci | grep -i nvidia
+```
+
+**Example output**:
+```
+01:00.0 VGA compatible controller: NVIDIA Corporation GP106 [GeForce GTX 1060 6GB] (rev a1)
+01:00.1 Audio device: NVIDIA Corporation GP106 High Definition Audio Controller (rev a1)
+```
+
+Note the PCI slot: `01:00.0` and `01:00.1`
+
+### Step 2: Get Device IDs
+
+```bash
+lspci -n -s 01:00.0
+```
+
+**Example output**:
+```
+01:00.0 0300: 10de:1c03 (rev a1)
+```
+
+Record the hex ID: `10de:1c03`
+
+Repeat for audio device:
+
+```bash
+lspci -n -s 01:00.1
+```
+
+Record: `10de:10f1`
+
+---
+
+## Part 2: Configure VFIO
+
+### Step 3: Create VFIO Configuration
+
+Edit VFIO module configuration:
+
+```bash
+echo "options vfio-pci ids=10de:1c03,10de:10f1 disable_vga=1" > /etc/modprobe.d/vfio.conf
+```
+
+**What this does**:
+- Binds GPU and audio to `vfio-pci` driver
+- `disable_vga=1` prevents VGA arbitration issues
+
+### Step 4: Blacklist NVIDIA Drivers
+
+Prevent Proxmox from loading NVIDIA drivers:
+
+```bash
+echo "blacklist nouveau" >> /etc/modprobe.d/blacklist.conf
+echo "blacklist nvidia" >> /etc/modprobe.d/blacklist.conf
+```
+
+**Why?** Proxmox shouldn't use the GPU; VMs will load drivers instead.
+
+### Step 5: Update Initramfs
+
+Apply changes to boot image:
+
+```bash
+update-initramfs -u -k all
+```
+
+---
+
+## Part 3: Enable IOMMU
+
+### Step 6: Configure GRUB
+
+Edit GRUB configuration:
+
+```bash
+nano /etc/default/grub
+```
+
+Find line:
+
+```bash
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+```
+
+Change to (**Intel CPU**):
+
+```bash
+GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"
+```
+
+**OR for AMD CPU**:
+
+```bash
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt"
+```
+
+**Parameters explained**:
+- `intel_iommu=on` / `amd_iommu=on`: Enables IOMMU
+- `iommu=pt`: Pass-through mode (better performance)
+
+Save and exit (Ctrl+X, Y, Enter).
+
+### Step 7: Update GRUB
+
+```bash
+update-grub
+```
+
+---
+
+## Part 4: Load VFIO Modules
+
+### Step 8: Add VFIO Modules to Boot
+
+```bash
+echo -e "vfio\nvfio_pci\nvfio_virqfd\nvfio_iommu_type1" >> /etc/modules
+```
+
+These modules enable PCI passthrough functionality.
+
+---
+
+## Part 5: Reboot and Verify
+
+### Step 9: Reboot Proxmox
+
+```bash
+reboot
+```
+
+### Step 10: Verify VFIO Binding
+
+After reboot, check driver binding:
+
+```bash
+lspci -nnk -d 10de:1c03
+```
+
+**Expected output**:
+```
+01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106 [GeForce GTX 1060 6GB] [10de:1c03] (rev a1)
+        Kernel driver in use: vfio-pci
+        Kernel modules: nvidiafb, nouveau
+```
+
+Key line: `Kernel driver in use: vfio-pci` ✓
+
+Verify audio device too:
+
+```bash
+lspci -nnk -d 10de:10f1
+```
+
+Should also show `vfio-pci` in use.
+
+### Step 11: Verify IOMMU is Enabled
+
+```bash
+dmesg | grep -i iommu
+```
+
+Look for lines like:
+```
+DMAR: IOMMU enabled
+```
+
+---
+
+## Part 6: Configure VM for GPU Passthrough
+
+### Step 12: Edit VM Configuration
+
+Find your VM ID (e.g., 100):
+
+```bash
+nano /etc/pve/qemu-server/100.conf
+```
+
+Add these lines:
+
+```conf
+machine: q35
+bios: ovmf
+cpu: host
+args: -cpu host,kvm=off
+hostpci0: 01:00,pcie=1,x-vga=1
+```
+
+**Configuration explained**:
+- `machine: q35`: Modern chipset required for PCIe passthrough
+- `bios: ovmf`: UEFI boot (required for GPU passthrough)
+- `cpu: host`: Pass through host CPU features
+- `args: -cpu host,kvm=off`: Hides virtualization from NVIDIA drivers
+- `hostpci0`: Passes through GPU at `01:00` (both functions)
+- `pcie=1`: Use PCIe bus
+- `x-vga=1`: Enable VGA arbitration
+
+### Step 13: Add EFI Disk (if not present)
+
+In Proxmox web interface:
+1. Select your VM
+2. Go to **Hardware** tab
+3. If no EFI disk exists:
+   - Click **Add → EFI Disk**
+   - Storage: Select storage (e.g., `local-lvm`)
+   - Click **Add**
+
+---
+
+## Part 7: Test GPU in VM
+
+### Step 14: Start VM and Verify
+
+1. Start the VM
+2. Inside VM, check for GPU:
+
+**Linux VM**:
+```bash
+lspci | grep -i nvidia
+```
+
+**Windows VM**:
+- Open Device Manager
+- Look under "Display adapters"
+
+3. Install NVIDIA drivers in the VM (see [Jellyfin GPU Setup](/blog/jellyfin-gpu-passthrough-setup))
+
+---
+
+## Troubleshooting
+
+### Issue: `vfio-pci` not binding to GPU
+
+**Solutions**:
+
+1. Check IOMMU is enabled:
+```bash
+dmesg | grep -e DMAR -e IOMMU
+```
+
+2. Verify device IDs in vfio.conf are correct:
+```bash
+cat /etc/modprobe.d/vfio.conf
+```
+
+3. Check for IOMMU grouping issues:
+```bash
+find /sys/kernel/iommu_groups/ -type l
+```
+
+GPU should be in its own group or with only its audio device.
+
+4. Some motherboards require:
+```bash
+# Add to GRUB line
+video=efifb:off
+```
+
+### Issue: VM won't start with GPU attached
+
+**Solutions**:
+
+1. Ensure VM uses:
+   - Machine type: `q35`
+   - BIOS: `OVMF`
+   - EFI disk added
+
+2. Check Proxmox logs:
+```bash
+tail -f /var/log/syslog
+```
+
+3. Try without `x-vga=1` first:
+```conf
+hostpci0: 01:00,pcie=1
+```
+
+### Issue: Code 43 error in Windows VM
+
+**Solutions**:
+
+1. Add to VM config:
+```conf
+args: -cpu host,kvm=off,hv_vendor_id=proxmox
+```
+
+2. Ensure hidden state is enabled:
+```conf
+cpu: host,hidden=1
+```
+
+3. Update VM machine type to `q35`
+
+4. Install latest NVIDIA drivers in VM
+
+### Issue: Black screen when VM starts
+
+**Solutions**:
+
+1. Connect via VNC/SPICE first (primary display)
+2. Once drivers load, GPU output activates
+3. Consider using `x-vga=0` if not using GPU as primary display
+4. Check physical monitor connection
+
+---
+
+## Performance Notes
+
+**With successful passthrough**:
+- Near-native GPU performance (95-98%)
+- Full CUDA/NVENC support
+- Multiple VMs can use same GPU (with SR-IOV support)
+- Windows gaming achieves within 5% of bare metal
+
+---
+
+## Security Considerations
+
+**Important notes**:
+1. GPU passthrough requires IOMMU, which impacts security isolation
+2. Consider dedicated GPUs for untrusted VMs
+3. Some GPUs may leak information between reset cycles
+4. Always use latest Proxmox and CPU microcode
+
+---
+
+## Advanced: Multiple GPUs
+
+To pass through multiple GPUs:
+
+1. Identify all GPU IDs
+2. Add all to vfio.conf:
+```bash
+options vfio-pci ids=10de:1c03,10de:10f1,10de:1b80,10de:10f0
+```
+
+3. Assign to different VMs:
+```conf
+# VM 100
+hostpci0: 01:00,pcie=1
+
+# VM 101
+hostpci0: 02:00,pcie=1
+```
+
+---
+
+## Conclusion
+
+You now have GPU passthrough configured on Proxmox, enabling:
+- ✓ Direct GPU access for VMs
+- ✓ Hardware-accelerated workloads
+- ✓ Near-native GPU performance in VMs
+- ✓ Support for CUDA, NVENC, gaming, and more
+
+Your VMs can now leverage dedicated GPU hardware for demanding applications.
+
+**Next steps**:
+- [Set up Jellyfin with GPU transcoding](/blog/jellyfin-gpu-passthrough-setup)
+- Configure Windows gaming VM
+- Explore SR-IOV for GPU sharing
+- Monitor GPU temperature and performance

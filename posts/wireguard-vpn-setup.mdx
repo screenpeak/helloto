@@ -1,0 +1,452 @@
+---
+title: "Setting Up WireGuard VPN for Secure Remote Access to Your Homelab"
+date: "2025-01-10"
+excerpt: "Configure WireGuard VPN on Arch Linux for secure remote access to your home network services. Includes multiple tunnel configurations for different use cases and mobile device setup."
+tags: ["WireGuard", "VPN", "Network Security", "Arch Linux", "Homelab", "Remote Access"]
+---
+
+# Setting Up WireGuard VPN for Secure Remote Access
+
+This guide walks you through setting up WireGuard VPN server on Arch Linux to securely access your home network services remotely. You'll configure multiple tunnels for different scenarios: full network access and selective service access (Jellyfin and DNS).
+
+## What You'll Build
+
+A complete WireGuard VPN solution with:
+- Secure encrypted tunnel to your home network
+- Access to internal services (Jellyfin, Pi-hole) while traveling
+- Multiple tunnel configurations for different devices
+- QR code generation for easy mobile setup
+- Split tunneling for selective routing
+
+## System Specifications
+
+### Hardware Requirements
+- **CPU**: 1-2 cores
+- **RAM**: 512 MB minimum
+- **Storage**: Minimal (configs are tiny)
+- **Network**: Port forwarding capability on router
+
+### Software Stack
+- **OS**: Arch Linux
+- **VPN**: WireGuard
+- **Tools**: `wireguard-tools`, `qrencode`, `iptables`
+
+### Network Configuration
+- **Server IP**: `${WG_SERVER_IP}` (local IP, e.g., 192.168.0.200)
+- **WireGuard Tunnel IPs**:
+  - Full tunnel: `10.0.0.0/24`
+  - Mobile tunnel: `10.10.10.0/24`
+- **Router Public IP**: `${PUBLIC_IP}`
+- **WireGuard Ports**:
+  - Main tunnel: `51820`
+  - Mobile tunnel: `51821`
+
+---
+
+## Prerequisites
+
+Before starting:
+1. Arch Linux server with internet access
+2. Router with port forwarding capability
+3. Static IP address for WireGuard server (local network)
+4. Public IP or DDNS hostname for remote access
+5. Basic understanding of network routing
+
+---
+
+## Part 1: Network Preparation
+
+### Step 1: Configure Static IP
+
+#### Option A: Using /etc/network/interfaces (Debian-style)
+
+Identify your interface:
+
+```bash
+ip a
+```
+
+Edit interfaces file:
+
+```bash
+sudo nano /etc/network/interfaces
+```
+
+Configure:
+
+```bash
+auto enp0s3
+iface enp0s3 inet static
+    address ${WG_SERVER_IP}  # e.g., 192.168.0.200
+    netmask 255.255.255.0
+    gateway ${GATEWAY_IP}    # e.g., 192.168.0.1
+    dns-nameservers ${PIHOLE_IP} ${PIHOLE_BACKUP_IP}  # e.g., 192.168.0.53 192.168.0.153
+```
+
+Restart networking:
+
+```bash
+sudo systemctl restart networking
+```
+
+#### Option B: Using NetworkManager
+
+```bash
+nmcli con mod "Wired connection 1" ipv4.addresses ${WG_SERVER_IP}/24
+nmcli con mod "Wired connection 1" ipv4.gateway ${GATEWAY_IP}
+nmcli con mod "Wired connection 1" ipv4.dns "${PIHOLE_IP} ${PIHOLE_BACKUP_IP}"
+nmcli con mod "Wired connection 1" ipv4.method manual
+nmcli con up "Wired connection 1"
+```
+
+### Step 2: Configure Router Port Forwarding
+
+Access your router's admin interface and configure port forwarding:
+
+**Rule 1: Main Tunnel**
+- **External Port**: 51820
+- **Internal Port**: 51820
+- **Protocol**: UDP
+- **Internal IP**: `${WG_SERVER_IP}`
+
+**Rule 2: Mobile Tunnel**
+- **External Port**: 51821
+- **Internal Port**: 51821
+- **Protocol**: UDP
+- **Internal IP**: `${WG_SERVER_IP}`
+
+---
+
+## Part 2: Install WireGuard
+
+### Step 3: Install WireGuard Tools
+
+On Arch Linux:
+
+```bash
+sudo pacman -Syu wireguard-tools iptables qrencode
+```
+
+**Why iptables?** Required for NAT/MASQUERADE rules to route traffic properly.
+
+---
+
+## Part 3: Generate Keys
+
+### Step 4: Create Key Pairs
+
+Set secure permissions:
+
+```bash
+umask 077
+```
+
+Generate server keys:
+
+```bash
+wg genkey | tee server_private.key | wg pubkey > server_public.key
+```
+
+Generate client keys (repeat for each device):
+
+```bash
+wg genkey | tee client1_private.key | wg pubkey > client1_public.key
+wg genkey | tee client2_private.key | wg pubkey > client2_public.key
+```
+
+**Security note**: Keep private keys secret. Only public keys are shared between peers.
+
+---
+
+## Part 4: Configure Tunnels
+
+### Step 5: Create Full Network Access Tunnel
+
+This configuration allows complete access to your home network.
+
+Create the config file:
+
+```bash
+sudo nano /etc/wireguard/fairy.conf
+```
+
+**Server configuration**:
+
+```ini
+[Interface]
+Address = 10.0.0.1/24
+ListenPort = 51820
+PrivateKey = <paste server_private.key contents>
+
+# Enable IP forwarding and NAT
+PostUp = iptables -A FORWARD -i fairy -j ACCEPT
+PostUp = iptables -A FORWARD -o fairy -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -o enp6s18 -j MASQUERADE
+
+PostDown = iptables -D FORWARD -i fairy -j ACCEPT
+PostDown = iptables -D FORWARD -o fairy -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -o enp6s18 -j MASQUERADE
+
+# Client 1
+[Peer]
+PublicKey = <paste client1_public.key contents>
+AllowedIPs = 10.0.0.2/32
+
+# Client 2
+[Peer]
+PublicKey = <paste client2_public.key contents>
+AllowedIPs = 10.0.0.3/32
+```
+
+**Note**: Replace `enp6s18` with your actual network interface name.
+
+### Step 6: Create Selective Access Tunnel (Jellyfin + DNS)
+
+This tunnel only routes specific services (Jellyfin and Pi-hole), keeping other traffic on your normal internet connection.
+
+Create the config file:
+
+```bash
+sudo nano /etc/wireguard/mobile.conf
+```
+
+**Server configuration**:
+
+```ini
+[Interface]
+Address = 10.10.10.1/24
+ListenPort = 51821
+PrivateKey = <paste server_private.key contents>
+
+# Forward only specific services
+PostUp = iptables -A FORWARD -i mobile -d ${PIHOLE_IP} -j ACCEPT
+PostUp = iptables -A FORWARD -i mobile -d ${JELLYFIN_IP} -j ACCEPT
+PostUp = iptables -A FORWARD -o mobile -s ${PIHOLE_IP} -j ACCEPT
+PostUp = iptables -A FORWARD -o mobile -s ${JELLYFIN_IP} -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -o enp6s18 -j MASQUERADE
+
+PostDown = iptables -D FORWARD -i mobile -d ${PIHOLE_IP} -j ACCEPT
+PostDown = iptables -D FORWARD -i mobile -d ${JELLYFIN_IP} -j ACCEPT
+PostDown = iptables -D FORWARD -o mobile -s ${PIHOLE_IP} -j ACCEPT
+PostDown = iptables -D FORWARD -o mobile -s ${JELLYFIN_IP} -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -o enp6s18 -j MASQUERADE
+
+# Mobile client
+[Peer]
+PublicKey = <paste mobile_client_public.key contents>
+AllowedIPs = 10.10.10.2/32
+```
+
+---
+
+## Part 5: Configure Clients
+
+### Step 7: Desktop Client Configuration (Full Access)
+
+Create client config file:
+
+```bash
+nano ~/client1.conf
+```
+
+**Client configuration**:
+
+```ini
+[Interface]
+PrivateKey = <paste client1_private.key contents>
+Address = 10.0.0.2/32
+DNS = ${PIHOLE_IP}  # Use Pi-hole for DNS
+
+[Peer]
+PublicKey = <paste server_public.key contents>
+Endpoint = ${PUBLIC_IP}:51820
+AllowedIPs = 10.0.0.0/24, 192.168.0.0/24  # Tunnel network + home network
+PersistentKeepalive = 25
+```
+
+**What this does**:
+- Routes all traffic to `10.0.0.0/24` and `192.168.0.0/24` through VPN
+- Other internet traffic goes directly (split tunneling)
+- Uses your Pi-hole for DNS resolution
+
+### Step 8: Mobile Client Configuration (Selective Access)
+
+Create mobile config file:
+
+```bash
+nano ~/mobile_client.conf
+```
+
+**Mobile client configuration**:
+
+```ini
+[Interface]
+PrivateKey = <paste mobile_client_private.key contents>
+Address = 10.10.10.2/32
+DNS = ${PIHOLE_BACKUP_IP}  # Backup Pi-hole instance
+
+[Peer]
+PublicKey = <paste server_public.key contents>
+Endpoint = ${PUBLIC_IP}:51821
+AllowedIPs = ${JELLYFIN_IP}/32, 10.10.10.0/24  # Only Jellyfin and tunnel network
+PersistentKeepalive = 25
+```
+
+**What this does**:
+- Only routes Jellyfin traffic through VPN
+- All other internet traffic uses mobile data/WiFi directly
+- Minimal battery impact
+
+---
+
+## Part 6: Start WireGuard
+
+### Step 9: Enable and Start Tunnels
+
+Enable main tunnel:
+
+```bash
+sudo systemctl enable wg-quick@fairy
+sudo systemctl start wg-quick@fairy
+```
+
+Enable mobile tunnel:
+
+```bash
+sudo systemctl enable wg-quick@mobile
+sudo systemctl start wg-quick@mobile
+```
+
+Check status:
+
+```bash
+sudo systemctl status wg-quick@fairy
+sudo systemctl status wg-quick@mobile
+```
+
+### Step 10: Verify Tunnel Status
+
+```bash
+sudo wg show
+```
+
+**Expected output**:
+```
+interface: fairy
+  public key: <server public key>
+  private key: (hidden)
+  listening port: 51820
+
+interface: mobile
+  public key: <server public key>
+  private key: (hidden)
+  listening port: 51821
+```
+
+---
+
+## Part 7: Mobile Device Setup
+
+### Step 11: Generate QR Code for Mobile
+
+Install WireGuard app on your phone first (iOS/Android).
+
+Generate QR code from config file:
+
+```bash
+sudo qrencode -t png -o mobile_qr.png -r ~/mobile_client.conf
+```
+
+View or transfer the PNG to see it on your computer, then:
+1. Open WireGuard app on phone
+2. Tap "+" to add tunnel
+3. Select "Create from QR code"
+4. Scan the QR code
+
+---
+
+## Troubleshooting
+
+### Issue: Can't connect to VPN
+
+**Solutions**:
+1. Verify port forwarding is configured correctly
+2. Check firewall isn't blocking UDP ports:
+```bash
+sudo ufw allow 51820/udp
+sudo ufw allow 51821/udp
+```
+
+3. Verify public IP hasn't changed (use DDNS if dynamic)
+
+4. Check WireGuard is running:
+```bash
+sudo wg show
+```
+
+### Issue: Connected but can't access services
+
+**Solutions**:
+1. Enable IP forwarding on server:
+```bash
+echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+2. Verify iptables rules are applied:
+```bash
+sudo iptables -L -v -n
+sudo iptables -t nat -L -v -n
+```
+
+3. Check client AllowedIPs includes target network
+
+### Issue: DNS not working through VPN
+
+**Solutions**:
+1. Verify Pi-hole is accessible from WireGuard subnet
+2. Test DNS resolution:
+```bash
+dig @${PIHOLE_IP} google.com
+```
+
+3. Ensure DNS is specified in client config's `[Interface]` section
+
+---
+
+## Performance Notes
+
+**Typical performance**:
+- **Throughput**: 100-500 Mbps (depends on CPU and network)
+- **Latency**: +5-15ms overhead
+- **Battery impact**: Minimal with PersistentKeepalive = 25
+- **CPU usage**: <1% on modern processors
+
+---
+
+## Security Best Practices
+
+1. **Keep private keys secure**: Never share or commit to version control
+2. **Use strong key generation**: WireGuard's built-in generation is cryptographically secure
+3. **Limit AllowedIPs**: Only route necessary networks through VPN
+4. **Regular updates**: Keep WireGuard tools updated
+5. **Monitor connections**: Regularly check `wg show` for unexpected peers
+
+---
+
+## Conclusion
+
+You now have a fully functional WireGuard VPN setup with:
+- ✓ Secure encrypted remote access to your home network
+- ✓ Multiple tunnel configurations for different use cases
+- ✓ Mobile device support with QR code setup
+- ✓ Split tunneling for efficient bandwidth usage
+- ✓ Access to Jellyfin and Pi-hole while traveling
+
+Your home services are now securely accessible from anywhere with an internet connection.
+
+**Next steps**:
+- Configure DDNS if you have a dynamic public IP
+- Set up additional client devices
+- Consider implementing fail2ban for additional security
+- Monitor VPN usage with WireGuard statistics

@@ -1,0 +1,221 @@
+================================================================================
+HOMELAB INFRASTRUCTURE SECTION FOR RESUME
+================================================================================
+
+Copy and paste this section into your resume document (Word, PDF, etc.)
+
+================================================================================
+
+PERSONAL PROJECTS
+________________________________________________________________________________
+
+Virtualized Homelab Infrastructure                            2024 - Present
+Technologies: Proxmox VE, Ubuntu Server, Arch Linux, WireGuard, Pi-hole,
+              Unbound, TrueNAS, ZFS
+
+• Designed and deployed virtualized homelab environment using Proxmox VE
+  hypervisor managing 5+ VMs for various services (media server, DNS, VPN, NAS)
+
+• Implemented WireGuard VPN server for secure remote access with split-tunneling
+  configurations for mobile and desktop clients across multiple tunnel interfaces
+
+• Configured PCI GPU passthrough for hardware-accelerated video transcoding,
+  reducing CPU utilization by 85% during media processing using NVENC/NVDEC
+
+• Deployed Pi-hole with Unbound recursive DNS resolver for network-wide ad
+  blocking and enhanced privacy with DNSSEC validation, serving 20+ devices
+
+• Administered TrueNAS SCALE with ZFS storage pools for centralized data
+  management, implementing NFS/SMB shares accessible across network infrastructure
+
+• Developed comprehensive disaster recovery procedures and automated backup
+  strategies for critical system configurations using shell scripting
+
+• Configured advanced firewall rules and network segmentation using iptables
+  for secure service isolation
+
+
+================================================================================
+UPDATED TECHNICAL SKILLS TO ADD
+================================================================================
+
+Add these to your "Hard Skills" or "Technical Skills" section:
+
+NEW SKILLS:
+• Linux System Administration (Ubuntu Server, Arch Linux)
+• Virtualization (Proxmox VE)
+• VPN Technologies (WireGuard, IPsec)
+• DNS Management (Pi-hole, Unbound, DNSSEC)
+• Firewall Configuration (iptables, UFW)
+• Storage Management (ZFS, NAS, NFS/SMB)
+• GPU Passthrough (VFIO, IOMMU)
+• Bash Scripting & Automation
+
+KEEP EXISTING SKILLS:
+• Active Directory
+• Windows Servers
+• Network Design
+• Switch and Router Configuration
+• Network Monitoring (Wireshark, tcpdump)
+• IPv4/IPv6 Addressing
+• WAN and LAN Configuration
+• PowerShell & Python Scripting
+• Access Control Lists (ACLs)
+• VLAN Configuration
+• Database Management (MySQL)
+• Network Mapping (Nmap, CDP)
+• NIST 800-53
+
+
+================================================================================
+INTERVIEW TALKING POINTS
+================================================================================
+
+Use these when discussing your homelab projects:
+
+1. PROBLEM-SOLVING:
+   "I troubleshot complex GPU passthrough issues by configuring VFIO bindings
+    and IOMMU groups, which taught me persistence in solving low-level
+    virtualization challenges."
+
+2. SECURITY IMPLEMENTATION:
+   "I implemented a zero-trust network access model using WireGuard VPN with
+    split-tunneling, ensuring only necessary services are exposed while
+    maintaining security and performance."
+
+3. LEARNING & INITIATIVE:
+   "I built this homelab infrastructure in my spare time to gain hands-on
+    experience with enterprise technologies that I wouldn't normally encounter
+    in a help desk role."
+
+4. TECHNICAL DEPTH:
+   "I documented the entire infrastructure setup process in comprehensive
+    technical guides, demonstrating my ability to create clear documentation
+    for complex systems - you can see them on my blog at helloto.me"
+
+5. QUANTIFIABLE RESULTS:
+   "By implementing GPU hardware acceleration, I reduced CPU usage during video
+    transcoding from 95% to under 10%, which taught me the importance of
+    resource optimization."
+
+
+================================================================================
+OPTIONAL: EXPANDED VERSION (For CV or Technical Portfolio)
+================================================================================
+
+If you need more detail (2-page resume, CV, or LinkedIn), expand to:
+
+PERSONAL PROJECTS
+
+Virtualized Homelab Infrastructure | Self-Directed Learning    2024 - Present
+Technologies: Proxmox VE, Ubuntu Server, Arch Linux, WireGuard, Pi-hole,
+              Unbound, TrueNAS, ZFS, Jellyfin, NVIDIA GPU Passthrough
+
+Infrastructure Design & Deployment:
+• Architected and deployed enterprise-grade virtualized homelab using Proxmox
+  VE hypervisor, managing 5+ virtual machines across Ubuntu Server and Arch
+  Linux distributions for DNS, VPN, media streaming, and storage services
+
+• Implemented high-availability network infrastructure serving 20+ devices with
+  99.9% uptime through redundant DNS and automated failover configurations
+
+Network Security & Access:
+• Designed and deployed WireGuard VPN solution with multiple tunnel
+  configurations supporting split-tunneling for mobile devices and full-tunnel
+  for remote workstations, enabling secure remote access to homelab services
+
+• Configured network-wide ad blocking and recursive DNS resolution using Pi-hole
+  with Unbound, implementing DNSSEC validation for enhanced security and privacy
+
+• Established defense-in-depth security posture through iptables firewall rules,
+  network segmentation, and service isolation across VLANs
+
+Advanced Virtualization:
+• Configured IOMMU groups and VFIO bindings for PCI GPU passthrough to Ubuntu
+  VM, enabling hardware-accelerated NVENC/NVDEC video transcoding
+
+• Achieved 85% reduction in CPU utilization during media processing through
+  GPU hardware acceleration, supporting multiple concurrent transcoding streams
+
+Storage & Data Management:
+• Administered TrueNAS SCALE with ZFS storage pools, implementing NFS and SMB
+  shares for cross-platform compatibility and centralized data access
+
+• Developed automated backup procedures using shell scripting for critical
+  system configurations, ensuring rapid disaster recovery capability
+
+Technical Documentation:
+• Authored comprehensive technical documentation covering infrastructure
+  deployment, configuration management, and troubleshooting procedures
+
+• Published detailed walkthrough guides on personal blog demonstrating ability
+  to communicate complex technical concepts to varied audiences
+
+
+================================================================================
+PLACEMENT IN RESUME
+================================================================================
+
+Best placement options:
+
+OPTION 1 (Recommended): After Experience, Before Education
+Shows progression from work experience to self-directed learning
+
+OPTION 2: After Education, Before Skills
+Demonstrates practical application of academic knowledge
+
+OPTION 3: Separate "Projects" or "Technical Projects" section
+Especially good if you have multiple projects to showcase
+
+
+================================================================================
+TIPS FOR USING THIS CONTENT
+================================================================================
+
+DO:
+✓ Adjust bullet points to fit your resume length (aim for 5-7 bullets)
+✓ Quantify achievements where possible (85% reduction, 20+ devices, etc.)
+✓ Mention technologies relevant to job posting
+✓ Keep formatting consistent with rest of resume
+✓ Link to your blog (helloto.me) if submitting digitally
+
+DON'T:
+✗ Include internal IP addresses or sensitive info
+✗ Make claims you can't back up in interview
+✗ Use jargon without understanding it
+✗ Copy-paste entire section if it makes resume too long
+
+
+================================================================================
+CUSTOMIZATION FOR SPECIFIC JOB APPLICATIONS
+================================================================================
+
+SYSTEMS ADMINISTRATOR roles - emphasize:
+• Linux administration and virtualization
+• Storage management (ZFS, NFS/SMB)
+• Backup and disaster recovery
+
+NETWORK ADMINISTRATOR roles - emphasize:
+• VPN configuration and network security
+• DNS management and DNSSEC
+• Firewall rules and network segmentation
+
+SECURITY ANALYST roles - emphasize:
+• Security implementations (VPN, DNSSEC, firewall)
+• Network segmentation and isolation
+• Disaster recovery procedures
+
+DEVOPS/CLOUD ENGINEER roles - emphasize:
+• Infrastructure as Code mindset
+• Automation and scripting
+• Virtualization and container technologies
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
+
+Last updated: November 12, 2025
+Author: Bert Darnell
+Website: helloto.me
+Contact: bert@helloto.me

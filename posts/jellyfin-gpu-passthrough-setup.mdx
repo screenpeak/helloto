@@ -1,0 +1,278 @@
+---
+title: "Setting Up Jellyfin Media Server with NVIDIA GPU Passthrough on Proxmox"
+date: "2025-01-12"
+excerpt: "A complete walkthrough for installing Jellyfin media server with NVIDIA GPU hardware acceleration on Ubuntu Server running in Proxmox VE. Enable NVENC/NVDEC for efficient video transcoding."
+tags: ["Jellyfin", "Proxmox", "GPU Passthrough", "Ubuntu", "Media Server", "Homelab"]
+---
+
+# Setting Up Jellyfin Media Server with NVIDIA GPU Passthrough
+
+This guide walks you through setting up a Jellyfin media server with NVIDIA GPU hardware acceleration for video transcoding. By passing through a dedicated GPU to your Ubuntu VM in Proxmox, you'll enable efficient hardware-accelerated encoding (NVENC) and decoding (NVDEC) for smooth media playback across all your devices.
+
+## What You'll Build
+
+A dedicated Jellyfin media server with:
+- Hardware-accelerated video transcoding using NVIDIA GPU
+- Efficient streaming to multiple clients simultaneously
+- Reduced CPU usage during media playback
+- Support for 4K and high-bitrate content
+
+## System Specifications
+
+### Hardware
+- **GPU**: NVIDIA GeForce GTX 1060 6GB (or similar NVENC-capable card)
+- **CPU**: 4 cores allocated to VM
+- **RAM**: 4096 MB (with 6144 MB max, using balloon minimum)
+- **Storage**: 32 GB SSD for OS
+
+### Software Stack
+- **Hypervisor**: Proxmox VE
+- **Guest OS**: Ubuntu Server (latest LTS recommended)
+- **Media Server**: Jellyfin
+- **GPU Driver**: NVIDIA proprietary drivers (535+ recommended)
+
+### Network Configuration
+- **VM IP Address**: `${JELLYFIN_IP}` (example: 192.168.0.123)
+- **Network**: Bridged to home network via vmbr0
+
+## Prerequisites
+
+Before starting, ensure:
+1. Proxmox GPU passthrough is configured (see [Proxmox GPU Passthrough Guide](/blog/proxmox-gpu-passthrough))
+2. Ubuntu Server VM is created with GPU passed through
+3. You can SSH into the VM or access the console
+4. GPU is visible in the VM (`lspci | grep -i nvidia` shows your card)
+
+---
+
+## Step 1: Prepare the System
+
+First, update your system and install build dependencies:
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install build-essential dkms linux-headers-$(uname -r) -y
+```
+
+**Why this matters**: `dkms` (Dynamic Kernel Module Support) and kernel headers are required to build the NVIDIA driver kernel module that interfaces with your GPU.
+
+---
+
+## Step 2: Add NVIDIA Driver Repository
+
+Add the official NVIDIA PPA for the latest drivers:
+
+```bash
+sudo add-apt-repository ppa:graphics-drivers/ppa
+sudo apt update
+```
+
+This repository provides newer driver versions than Ubuntu's default repos, often with better performance and bug fixes.
+
+---
+
+## Step 3: Detect Recommended Driver Version
+
+Let Ubuntu detect the best driver for your GPU:
+
+```bash
+ubuntu-drivers devices
+```
+
+**Example output**:
+```
+driver   : nvidia-driver-535 - distro non-free recommended
+driver   : nvidia-driver-525 - distro non-free
+driver   : nvidia-driver-515 - distro non-free
+```
+
+Note the **recommended** driver version (e.g., `nvidia-driver-535`).
+
+---
+
+## Step 4: Install the NVIDIA Driver
+
+Install the recommended driver:
+
+```bash
+sudo apt install nvidia-driver-535 -y
+```
+
+Replace `535` with whatever version was recommended in Step 3.
+
+---
+
+## Step 5: Reboot the System
+
+```bash
+sudo reboot
+```
+
+**Note**: If you have Secure Boot enabled, you'll be prompted to enroll the MOK (Machine Owner Key) during reboot. Follow the on-screen instructions.
+
+---
+
+## Step 6: Verify Driver Installation
+
+After reboot, verify the driver is loaded correctly:
+
+```bash
+nvidia-smi
+```
+
+**Expected output**:
+```
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 535.113.01    Driver Version: 535.113.01    CUDA Version: 12.2  |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|===============================+======================+======================|
+|   0  GeForce GTX 1060...  Off  | 00000000:01:00.0 Off |                  N/A |
+| 40%   35C    P0    25W / 120W |      0MiB /  6144MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
+```
+
+If you see your GPU listed with no errors, the driver is working correctly!
+
+---
+
+## Step 7: Install Jellyfin
+
+Use the official Jellyfin installation script:
+
+```bash
+curl https://repo.jellyfin.org/install-debuntu.sh | sudo bash
+```
+
+This installs:
+- Jellyfin server
+- Jellyfin FFmpeg (optimized for hardware acceleration)
+- Required dependencies
+
+---
+
+## Step 8: Verify NVENC/NVDEC Support
+
+Check that Jellyfin's FFmpeg build supports hardware encoding:
+
+```bash
+/opt/jellyfin-ffmpeg/ffmpeg -hide_banner -encoders | grep nvenc
+```
+
+**Expected output**:
+```
+V....D h264_nvenc           NVIDIA NVENC H.264 encoder
+V....D hevc_nvenc           NVIDIA NVENC hevc encoder
+V....D av1_nvenc            NVIDIA NVENC AV1 encoder
+```
+
+---
+
+## Step 9: Configure Hardware Acceleration in Jellyfin
+
+1. Open Jellyfin Web UI: `http://${JELLYFIN_IP}:8096`
+
+2. Navigate to: **Dashboard → Playback**
+
+3. Scroll to **Hardware Acceleration** section
+
+4. Configure:
+   - **Hardware acceleration**: `NVIDIA NVENC`
+   - **Enable hardware encoding**: ✓
+   - **Enable hardware decoding**: ✓
+   - **Encoding threads**: Leave at default
+
+5. Optionally enable specific codecs:
+   - H.264
+   - HEVC (H.265)
+   - AV1 (if supported by your GPU)
+
+6. **Save** settings
+
+---
+
+## Step 10: Test Hardware Transcoding
+
+To verify hardware transcoding is working:
+
+1. Play a video that requires transcoding (different resolution or codec)
+
+2. Monitor the log file:
+```bash
+sudo tail -f /var/log/jellyfin/jellyfin.log
+```
+
+3. Look for lines like:
+```
+Stream mapping:
+Using hardware accelerated decoding with nvdec
+Using hardware accelerated encoding with h264_nvenc
+```
+
+4. Check GPU usage:
+```bash
+nvidia-smi
+```
+
+You should see GPU utilization increase during playback.
+
+---
+
+## Troubleshooting
+
+### Issue: `nvidia-smi` shows "No devices found"
+
+**Solutions**:
+1. Verify GPU is visible: `lspci | grep -i nvidia`
+2. Check Proxmox GPU passthrough configuration
+3. Ensure Secure Boot is disabled (or MOK key is enrolled)
+4. Verify IOMMU is enabled in Proxmox
+
+### Issue: Jellyfin can't access GPU
+
+**Solutions**:
+1. Add jellyfin user to video and render groups:
+```bash
+sudo usermod -aG video,render jellyfin
+sudo systemctl restart jellyfin
+```
+
+2. Check permissions on `/dev/nvidia*` devices:
+```bash
+ls -la /dev/nvidia*
+```
+
+### Issue: Transcoding still uses CPU
+
+**Solutions**:
+1. Verify hardware acceleration is enabled in Jellyfin settings
+2. Check that the media requires transcoding (force transcode to test)
+3. Ensure Jellyfin is using the correct FFmpeg binary (`/opt/jellyfin-ffmpeg/ffmpeg`)
+
+---
+
+## Performance Notes
+
+**With GPU transcoding enabled**:
+- CPU usage: ~5-15% during 4K transcoding
+- GPU usage: ~30-60% depending on codec and resolution
+- Supports multiple simultaneous transcodes
+- Power consumption: Moderate (~25W additional GPU load)
+
+**Without GPU (CPU transcoding)**:
+- CPU usage: 80-100% per transcode
+- Limited simultaneous streams
+- Higher power consumption
+
+---
+
+## Conclusion
+
+You now have a fully functional Jellyfin media server with NVIDIA GPU hardware acceleration. Your server can efficiently transcode multiple streams simultaneously while keeping CPU usage low. This setup is ideal for serving media to various devices with different playback capabilities.
+
+**Next steps**:
+- Configure remote access via reverse proxy
+- Set up automated library scanning
+- Optimize your media library organization
+- Consider setting up [WireGuard VPN](/blog/wireguard-vpn-setup) for secure remote access
