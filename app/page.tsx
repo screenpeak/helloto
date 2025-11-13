@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useState } from "react";
 
+// Portfolio landing page with contact form
 export default function Home() {
   const [formData, setFormData] = useState({
     name: "",
