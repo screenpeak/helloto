@@ -8,11 +8,11 @@ const resumeData = {
   title: "Cybersecurity Professional | Help Desk Specialist",
   contact: {
     email: "bert@helloto.me",
-    github: "github.com/bert-darnell",
-    location: "Beaver Falls, PA",
+    github: "github.com/bdarn",
+    location: "Beaver, PA",
   },
   summary:
-    "Recently relocated to Beaver Falls, PA to support family, I am a motivated graduate with a proven ability to balance full-time work and academic pursuits. My dedication to continuous learning and extensive work history have equipped me with a diverse set of transferable skills. I am confident in my ability to contribute effectively by ensuring data integrity, confidentiality, and availability while implementing and monitoring critical assets.",
+    "Help Desk Specialist with hands-on experience supporting critical healthcare IT operations at HVHS. Skilled in Active Directory, system troubleshooting, and managing hospital systems. Recently earned a Bachelor's degree in Information and Computer Science with Cisco CCNAv7 and CyberOps Associate certifications. Actively expanding technical expertise through homelab projects involving virtualization, network security, and Linux system administration. Seeking opportunities to leverage my help desk foundation and growing technical skills in cybersecurity, systems administration, or network engineering roles.",
   experience: [
     {
       title: "Help Desk Specialist",
