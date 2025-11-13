@@ -345,6 +345,7 @@ export default function ResumePage() {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                onClick={() => window.print()}
                 className="bg-[#4682B4] hover:bg-[#36648B] dark:bg-[#5F9EA0] dark:hover:bg-[#4682B4] text-white font-semibold py-3 px-8 rounded-lg transition-colors shadow-md"
               >
                 Download PDF Resume
