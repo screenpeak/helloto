@@ -5,10 +5,11 @@ import { motion } from "framer-motion";
 import type { Post } from "@/lib/posts";
 
 export function PostCard({ post }: { post: Post }) {
-  const formattedDate = new Date(post.date).toLocaleDateString("en-US", {
+  const formattedDate = new Date(post.date + 'T00:00:00').toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "UTC",
   });
 
   return (
