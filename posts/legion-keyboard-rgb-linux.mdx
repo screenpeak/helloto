@@ -1,0 +1,140 @@
+---
+title: "Controlling My Lenovo Legion Keyboard RGB on Linux"
+date: "2025-01-30"
+excerpt: "How I built a simple bash script to control my Legion laptop's RGB keyboard on Arch Linux, and integrated it with my Hyprland theme system."
+tags: ["Linux", "Arch Linux", "Bash", "Hardware", "RGB", "Lenovo Legion", "Hyprland"]
+---
+
+# Controlling My Lenovo Legion Keyboard RGB on Linux
+
+I use a Lenovo Legion 15 ACH6 laptop running Arch Linux with Omarchy (Hyprland), and I wanted to control the RGB keyboard lighting without needing Windows or Lenovo Vantage. Here's how I built a simple bash script to do it.
+
+## The Problem
+
+On Windows, Lenovo Vantage lets you control the RGB keyboard. On Linux? Nothing. The keyboard just stays on whatever color it was set to last, or sometimes defaults to white.
+
+I wanted:
+- Change keyboard colors from the terminal
+- Match my keyboard to my system theme automatically
+- No Python dependencies or complex tools
+- Something that just works
+
+## How It Works
+
+The Legion keyboard uses an ITE RGB controller (vendor ID `048d`, product IDs `c101` or `c965`). It communicates via USB HID - you just write 32-byte packets to `/dev/hidraw*` devices.
+
+The protocol is pretty simple:
+```
+Byte 0-1:   Header (0xCC 0x16)
+Byte 2:     Effect (0x01=static, 0x03=breath, 0x04=wave, 0x06=hue)
+Byte 3:     Speed (1=fast, 4=slow)
+Byte 4:     Brightness (1=low, 2=high)
+Byte 5-16:  RGB colors for 4 zones
+Byte 17-31: Padding and metadata
+```
+
+I reverse-engineered this from the [LegionAura](https://github.com/nivedck/LegionAura) and [L5P-Keyboard-RGB](https://github.com/4JX/L5P-Keyboard-RGB) projects. Big thanks to those developers for figuring out the protocol.
+
+## The Script
+
+I wrote a bash script that:
+1. Finds the keyboard HID device automatically
+2. Parses colors (names, hex codes, or RGB values)
+3. Builds the 32-byte HID packet
+4. Sends it to the keyboard
+
+Usage is simple:
+```bash
+./legion-rgb.sh static red
+./legion-rgb.sh static "#FF0000"
+./legion-rgb.sh effect hue          # rainbow cycling
+./legion-rgb.sh effect breath blue
+```
+
+## Automatic Theme Syncing
+
+The coolest part: I integrated it with Omarchy's theme system. When I change my desktop theme, the keyboard automatically matches.
+
+Omarchy has a hook system that runs scripts when themes change. I created a hook at `~/.config/omarchy/hooks/theme-set` that:
+1. Reads the theme's primary accent color
+2. Applies it to the keyboard
+
+Now when I run:
+```bash
+omarchy-theme-set nord
+```
+
+My desktop theme changes to Nord, and my keyboard automatically turns light blue to match. No extra commands needed.
+
+## Installation
+
+If you have a Legion laptop and want to try it:
+
+```bash
+# 1. Clone/download the scripts
+git clone https://github.com/bdarn/lenovo-keyboard-rgb.git
+
+# 2. Install udev rules for permissions
+sudo cp 99-legion-rgb.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# 3. Make scripts executable
+chmod +x legion-rgb.sh sync-theme.sh
+
+# 4. Install Omarchy hook (optional, for theme sync)
+mkdir -p ~/.config/omarchy/hooks
+cp omarchy-hook-theme-set ~/.config/omarchy/hooks/theme-set
+chmod +x ~/.config/omarchy/hooks/theme-set
+
+# 5. Test it
+./legion-rgb.sh static red
+```
+
+## Technical Details
+
+**Why Bash?**
+- No dependencies (works on any Linux system)
+- Simple for this use case (just writing bytes)
+- Easy to read and modify
+- Fast startup
+
+**Device Detection**
+The script searches `/sys/class/hidraw/` for devices matching the ITE vendor/product IDs. This means it works even if the hidraw device number changes between reboots.
+
+**Permissions**
+Instead of running with sudo every time, I created udev rules that give user-level write access to the keyboard HID device.
+
+## Limitations
+
+- **Per-key RGB**: Not implemented. The protocol supports 4 zones, but I treat them as one color for simplicity.
+- **Persistence**: Settings don't survive reboots. I run the script on startup via Hyprland.
+- **Model-specific**: Tested only on Legion 15 ACH6. May work on other models with the same ITE controllers.
+
+## What I Learned
+
+- USB HID is simpler than I thought for basic control
+- Reverse engineering hardware protocols isn't as scary as it seems when good tools exist
+- Bash is perfectly fine for small system utilities
+- Integration with existing tools (Omarchy hooks) > building everything from scratch
+
+## Code
+
+The full code is available at [github.com/bdarn/lenovo-keyboard-rgb](https://github.com/bdarn/lenovo-keyboard-rgb). It includes:
+- `legion-rgb.sh` - Main RGB controller
+- `sync-theme.sh` - Theme color extractor
+- `omarchy-hook-theme-set` - Omarchy integration
+- `99-legion-rgb.rules` - Udev permissions
+
+Feel free to use it, modify it, or learn from it!
+
+---
+
+**Hardware:** Lenovo Legion 15 ACH6
+**OS:** Arch Linux
+**WM:** Hyprland (Omarchy)
+**Tools:** Bash, USB HID
+
+---
+
+*Written on a keyboard that finally changes colors on Linux.*
