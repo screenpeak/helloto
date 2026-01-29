@@ -1,0 +1,141 @@
+---
+title: "I Built an AI-Powered Pentesting Suite (And That Should Concern You)"
+date: "2026-01-29"
+excerpt: "I'm not a senior security engineer. I built this in a few days. If I can do it, what are the people with real skill building?"
+tags: ["pentesting", "ai", "mcp", "security", "automation"]
+---
+
+# I Built an AI-Powered Pentesting Suite (And That Should Concern You)
+
+I'm not a senior security engineer. I'm somewhere in the middle - enough experience to know my way around pentesting tools, enough coding ability to wire things together. And last week I built MCP Pwnbox: a suite that lets AI assistants like Claude Code run automated pentesting workflows.
+
+It took me a few days.
+
+That's the part that keeps nagging at me. If someone at my skill level can build this, what are the people with actual expertise building? And more importantly, are defenders ready for it?
+
+## What I Built
+
+MCP Pwnbox exposes common pentesting tools through Model Context Protocol (MCP), a standard that lets AI assistants call external tools. The architecture looks like this:
+
+```
+AI Assistant (Claude Code)
+    │
+    ▼ MCP Protocol (stdin/stdout JSON-RPC)
+    │
+Orchestrator (State Machine)
+    │
+    ├─→ Recon Server (nmap, masscan, dig)
+    ├─→ Enum Server (gobuster, ffuf, feroxbuster)
+    ├─→ Exploit Server (sqlmap, hydra, nikto)
+    └─→ Post Server (linpeas, chisel, nxc)
+```
+
+Everything runs in Docker containers with host networking, so the tools can reach targets through VPN interfaces. The orchestrator enforces proper pentest methodology through a state machine:
+
+```
+INIT → RECON → ENUM → VULN_ANALYSIS → EXPLOIT → POST_EXPLOIT → COMPLETE
+```
+
+It's deliberately strict. You can't run `sqlmap` during recon. You can't skip enumeration. The AI has to follow the same disciplined workflow a professional would use.
+
+## What It Actually Does
+
+Here's a simplified example workflow:
+
+**1. Set the target and start recon:**
+```json
+set_target({"target": "10.10.10.5"})
+transition({"to_state": "RECON_RUNNING"})
+nmap_scan({"target": "10.10.10.5", "scan_type": "standard"})
+```
+
+**2. AI analyzes the results, logs findings, moves to enumeration:**
+```json
+transition({"to_state": "ENUM_RUNNING"})
+gobuster_dir({
+  "url": "http://10.10.10.5",
+  "wordlist": "/wordlists/dirb/common.txt"
+})
+```
+
+**3. AI discovers endpoints, transitions to exploitation:**
+```json
+transition({"to_state": "EXPLOIT_RUNNING"})
+sqlmap_scan({
+  "url": "http://10.10.10.5/admin/login.php",
+  "data": "username=admin&password=test"
+})
+```
+
+The AI is making decisions at each phase based on what it finds. It maintains context across the entire engagement. It suggests next steps. It's not just running commands - it's conducting a structured assessment.
+
+## Why This Matters
+
+The barrier to entry for this kind of tooling has dropped significantly. Here's what it took to build this:
+
+- **MCP protocol**: Open source, well-documented
+- **Security tools**: All freely available (nmap, gobuster, sqlmap, etc.)
+- **Docker**: Makes everything portable and reproducible
+- **LLM APIs**: Accessible to anyone with an account
+- **Implementation time**: A few days for someone at my skill level
+
+I'm not trying to be alarmist. I'm just being honest about the reality: if I can build this, so can actual threat actors. And they don't have compliance departments or ethical review boards. They just have motivation and access to the same tools.
+
+## The Practical Implications
+
+This isn't theoretical. This kind of workflow is:
+
+- **Faster**: AI can run enumeration across multiple services simultaneously
+- **More thorough**: It doesn't get tired or miss details in verbose output
+- **Scalable**: What used to require a team can be done by one person
+- **Accessible**: The technical barrier is lower than it's ever been
+
+For defenders, this means:
+
+1. **This is what you're up against.** Automated, AI-assisted recon is happening right now.
+2. **Your detection needs to adapt.** Traditional rate-limiting might not catch an AI that naturally varies its approach.
+3. **You need equivalent capabilities.** The same augmentation that helps attackers can help defenders with threat hunting and incident response.
+
+## How It Works Technically
+
+Each MCP server exposes tools through a standard interface. Here's what a tool definition looks like:
+
+```python
+Tool(
+    name="nmap_scan",
+    description="Port scanning with service detection",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "target": {"type": "string"},
+            "scan_type": {"type": "string"},
+            "ports": {"type": "string"}
+        },
+        "required": ["target"]
+    }
+)
+```
+
+The AI calls tools via JSON-RPC, gets results back, and decides what to do next. The orchestrator maintains state and enforces phase restrictions. The tool servers just execute commands and return results.
+
+It's simple. Maybe too simple.
+
+## The Question I Can't Shake
+
+I keep coming back to this: if someone like me - not a senior engineer, not an expert - can build a functional AI-powered pentesting suite in a few days, what are the people with real skill building?
+
+What are nation-state actors building? What are organized crime groups building? What are the people who actually know what they're doing and have real resources building?
+
+I don't have answers. But I think defenders need to be asking these questions.
+
+The tools exist. The frameworks exist. The AI models exist. The barrier to entry is low and getting lower.
+
+Are we ready for that?
+
+---
+
+**Code**: The project is open source at [github.com/bdarn/mcp-pwnbox](https://github.com/bdarn/mcp-pwnbox)
+
+**Legal note**: This is for authorized testing only. Only scan systems you own or have explicit permission to test. Unauthorized scanning is illegal.
+
+**About me**: Security practitioner exploring AI augmentation. These are my personal observations, not professional advice.
